@@ -1,6 +1,8 @@
 library(rglobi)
 library(tidyverse)
 library(stringr)
+library(igraph)
+library(NetIndices)
 
 food = read.table("H:/Literature/Cohen&Mulder2014_135FoodWebs.txt", header = T,
                   sep = "\t")
@@ -68,10 +70,41 @@ mat[which(taxainfo$Feeding.Preference == "Fungivore insects and pauropods"|
           taxainfo$Feeding.Preference == "Omnivore insect")] = 1
 
 #I think that covers everything?
+g = graph_from_adjacency_matrix(mat, mode = "directed")
+tkplot(g)
+
+# individual attribute dataframes for each location
+att = split(food, with(food, Web.ID)) 
+# add basal resources
+for (i in 1:length(att)) {
+  att[[i]] = att[[i]] %>% add_row(Genus.Morphon = c("bacteria","fungi","plants","detritus"))
+}
+
+# individual matrices for each location
+web = vector(mode = "list", length=length(att))
+for (i in 1:length(att)) {
+  web[[i]] = mat[att[[i]]$Genus.Morphon,
+                 att[[i]]$Genus.Morphon]
+}
+
+# g = graph_from_adjacency_matrix(web[[1]], mode = "directed")
+# tkplot(g)
+# 
+# 
+# lay=matrix(nrow=dim(web[[1]])[1],ncol=2) # create a matrix with one column as runif, the other as trophic level
+# lay[,1]=runif(nrow(web[[1]]), min = 1, max = 90)
+# lay[,2]=TrophInd(web[[1]])$TL
+# 
+# for (i in 1:length(lay[,2])) { 
+# lay[i,2] = lay[i,2] + rnorm(1, mean = 0,sd = .2)
+# }
+# plot(g, 
+#      layout=lay,
+#      vertex.size=8,
+#      edge.arrow.size=.3,
+#      edge.width=.5)
 
 
-which(str_detect(taxainfo$V2, "mite"))
-View(taxainfo[taxainfo$Feeding.Preference == "Plant-feeding collembolans and symphylids",])
 
 mat = get_interaction_matrix(food[1:39,"Genus.Morphon"], 
                              food[1:39,"Genus.Morphon"],
