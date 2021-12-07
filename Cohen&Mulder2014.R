@@ -2,6 +2,8 @@ library(rglobi)
 library(tidyverse)
 library(stringr)
 library(igraph)
+library(ggraph)
+library(tidygraph)
 library(NetIndices)
 
 food = read.table("H:/Literature/Cohen&Mulder2014_135FoodWebs.txt", header = T,
@@ -71,6 +73,26 @@ mat[which(taxainfo$Feeding.Preference == "Fungivore insects and pauropods"|
 
 #I think that covers everything?
 g = graph_from_adjacency_matrix(mat, mode = "directed")
+e <- get.edgelist(g)
+df <- as.data.frame(cbind(e,E(g)$weight))
+colnames(df) = c("Resource","Consumer")
+df$type = ifelse(df$Resource %in% taxainfo$Genus.Morphon, "predation", 
+                 ifelse(df$Resource == "plants", "herbivory", 
+                        "detritivory"))
+
+trlomn = TrophInd(mat)
+
+df$TL = trlomn$TL[match(df$Consumer, rownames(trlomn))]
+
+hairball <- as_tbl_graph(df) %>% 
+  activate(edges) %>% 
+  mutate(type = as.character(type),
+         TL = as.numeric(TL))
+
+ggraph(hairball, layout = 'linear', sort.by = TL, use.numeric = T) + 
+  geom_edge_arc(aes(colour = type), fold = T)
+
+
 tkplot(g)
 
 # individual attribute dataframes for each location
