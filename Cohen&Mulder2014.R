@@ -6,64 +6,71 @@ library(ggraph)
 library(tidygraph)
 library(NetIndices)
 
-food = read.table("H:/Literature/Cohen&Mulder2014_135FoodWebs.txt", header = T,
-                  sep = "\t")
-https://figshare.com/ndownloader/files/5629329
-
+# get the data
 food = read.table("https://figshare.com/ndownloader/files/5629329", header = T,
                   sep = "\t")
+# what's wrong here?
 doof = read.table("https://figshare.com/ndownloader/files/5629326", header = T,
                   sep = "\t")
-unique(food$Feeding.Preference)
-unique(food$Genus.Morphon)
 
+# who's there?
+unique(food$Genus.Morphon)
+# are you ready to order?
+unique(food$Feeding.Preference)
+
+# who's there and what do they like
 taxa.info = food %>% group_by(Genus.Morphon) %>% 
   summarise(Feeding.Preference = first(Feeding.Preference)) 
+
+# this mostly results in V1=blabla-eating, V2=broad taxon
 trythis = as.data.frame(str_split(taxa.info$Feeding.Preference, " ", n = 2, simplify = T))
+#trythat = str_split(trythis[,2], " ", n = 2, simplify = T)
 
-
-trythat = str_split(trythis[,2], " ", n = 2, simplify = T)
-
+# a bit more juggling
 taxainfo = cbind(taxa.info, trythis)
 taxainfo$is = taxainfo$V2
 taxainfo$is[which(str_detect(taxainfo$V2, "mite"))] = "mite"
 taxainfo$is[which(str_detect(taxainfo$V2, "nematode"))] = "nematode"
 
-taxainfo$eats = NA
+#taxainfo$eats = NA
 
+# assembling the meta-foodweb (all taxa across plots, adding missing basal resources)
 mat = matrix(0, nrow = 262, ncol = 262,
              dimnames = list(c(taxainfo$Genus.Morphon,"bacteria","fungi","plants","detritus"),
                              c(taxainfo$Genus.Morphon,"bacteria","fungi","plants","detritus")))
 
+# next, we use the info that was packed into "Feeding.Preference" to create the interaction matrix:
+
+# fungi are consumed by...
 mat["fungi", which(taxainfo$V1=="Fungivore" | 
                    taxainfo$V1=="Microphytophage" |
                    taxainfo$V1=="Omnivore")] = 1
-
+# bacteria are consumed by...
 mat["bacteria", which(taxainfo$V1=="Bacterivore" |
                       taxainfo$V1=="Incidental"|
                       taxainfo$Feeding.Preference == "Omnivore nematode")] = 1
-
+# plants are consumed by...
 mat["plants", which(taxainfo$V1=="Macrophytophage" |
                     taxainfo$V1=="Plant-feeding"|
                     taxainfo$V1=="Omnivore")] = 1
-
+# detritus is consumed by...
 mat["detritus", which(taxainfo$V1=="Substrate-ingesting"|
                       taxainfo$V1=="Substrate-inhabiting"|
                       taxainfo$V1=="Omnivore")] = 1
-
+# nematodes are consumed by...
 mat[which(taxainfo$is=="nematode"), which(taxainfo$Feeding.Preference == "Predatory mite (attacking nematodes)" |
                                           taxainfo$Feeding.Preference == "Predating nematode (consuming nematodes)"|
                                           taxainfo$Feeding.Preference == "Generalist mite"|
                                           taxainfo$Feeding.Preference == "Omnivore nematode"|
                                           taxainfo$Feeding.Preference == "Omnivore mite" |
                                           taxainfo$Feeding.Preference == "Parasitizing mite (hosts are mites or nematodes)")] = 1
-
+# mites are consumed by...
 mat[which(taxainfo$is=="mite"), which(taxainfo$Feeding.Preference == "Predatory mite (attacking arthropods)"|
                                       taxainfo$Feeding.Preference == "Generalist mite" |
                                       taxainfo$Feeding.Preference == "Omnivore mite" |
                                       taxainfo$Feeding.Preference == "Parasitizing mite (hosts are mites or nematodes)"|
                                       taxainfo$Feeding.Preference == "Omnivore insect")] = 1
-
+# insects, pauropoda, collembola, symphyla are consumed by...
 mat[which(taxainfo$Feeding.Preference == "Fungivore insects and pauropods"|
           taxainfo$Feeding.Preference == "Plant-feeding collembolans and symphylids"),
     which(taxainfo$Feeding.Preference == "Predatory mite (attacking arthropods)"|
@@ -71,7 +78,22 @@ mat[which(taxainfo$Feeding.Preference == "Fungivore insects and pauropods"|
           taxainfo$Feeding.Preference == "Omnivore mite" |
           taxainfo$Feeding.Preference == "Omnivore insect")] = 1
 
-#I think that covers everything?
+# I think that covers everything?
+
+
+# individual attribute dataframes for each plot
+att = split(food, with(food, Web.ID))
+# individual matrices for each plot
+web = vector(mode = "list", length=length(att)) # an empty list...
+for (i in 1:length(att)) { 
+  # ...filled with subsets of the meta-foodweb, adding the missing basal resources
+  web[[i]] = mat[c(att[[i]]$Genus.Morphon,"bacteria","fungi","plants","detritus"),
+                 c(att[[i]]$Genus.Morphon,"bacteria","fungi","plants","detritus")]
+}
+
+
+
+
 g = graph_from_adjacency_matrix(mat, mode = "directed")
 e <- get.edgelist(g)
 df <- as.data.frame(cbind(e,E(g)$weight))
