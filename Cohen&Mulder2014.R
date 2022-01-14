@@ -121,7 +121,7 @@ for (i in 1:length(att)) {
   
   # add missing basals 
   att[[i]] = att[[i]] %>% add_row(Genus.Morphon = c("bacteria","fungi","plants","detritus"), 
-                                  Biomass = 1, # dummy !!!will mess up preferences if that is left to be done by fluxing()!!!
+                                  Biomass.mg = 1, # dummy !!!will mess up preferences if that is left to be done by fluxing()!!!
                                   pop.met.rate = 0,
                                   Average.T = att[[i]][1,"Average.T"])
   
@@ -149,7 +149,7 @@ for (i in 1:length(att)) {
 # i.e. the method by Barnes et al (2018) ####
 
 just1flux = fluxing(web[[8]], #This needs to be replaced by a preference matrix, controlling omnivores' diet
-                    att[[8]]$Biomass,
+                    att[[8]]$Biomass.mg,
                     att[[8]]$pop.met.rate,
                     att[[8]]$efficiency,
                     bioms.prefs = TRUE, # This needs to change
@@ -178,7 +178,7 @@ for (i in 1:length(att)) {
 
 
 
-g = graph_from_adjacency_matrix(mat, mode = "directed")
+g = graph_from_adjacency_matrix(web[[1]], mode = "directed")
 e <- get.edgelist(g)
 df <- as.data.frame(cbind(e,E(g)$weight))
 colnames(df) = c("Resource","Consumer")
@@ -186,7 +186,7 @@ df$type = ifelse(df$Resource %in% taxainfo$Genus.Morphon, "predation",
                  ifelse(df$Resource == "plants", "herbivory", 
                         "detritivory"))
 
-trlomn = TrophInd(mat)
+trlomn = TrophInd(web[[1]])
 
 df$TL = trlomn$TL[match(df$Consumer, rownames(trlomn))]
 
@@ -195,7 +195,8 @@ hairball <- as_tbl_graph(df) %>%
   mutate(type = as.character(type),
          TL = as.numeric(TL))
 
-ggraph(hairball, layout = 'linear', sort.by = TL, use.numeric = T) + 
+ggraph(hairball, layout = 'linear' #, sort.by = type
+       , use.numeric = F) + 
   geom_edge_arc(aes(colour = type), fold = T)
 
 
@@ -215,8 +216,8 @@ for (i in 1:length(att)) {
                  att[[i]]$Genus.Morphon]
 }
 
-# g = graph_from_adjacency_matrix(web[[1]], mode = "directed")
-# tkplot(g)
+g = graph_from_adjacency_matrix(web[[1]], mode = "directed")
+tkplot(g)
 # 
 # 
 # lay=matrix(nrow=dim(web[[1]])[1],ncol=2) # create a matrix with one column as runif, the other as trophic level
