@@ -152,6 +152,9 @@ for (i in 1:length(att)) {
 
 library(cubature)
 
+# If I have 1 bodymass distribution pre taxon across all locations I can do this once
+# Repeating 135 times is... crazy
+
 for (i in 1:length(att)) { 
   n = length(att[[i]]$freshMass.mg)-4
   body.mat = replicate(n, att[[i]]$freshMass.mg)
