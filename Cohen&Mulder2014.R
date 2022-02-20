@@ -7,6 +7,7 @@ library(tidygraph)
 library(NetIndices)
 library(fluxweb)
 library(soilfoodwebs)
+library(vegan)
 
 # get the data
 food = read.table("https://figshare.com/ndownloader/files/5629329", header = T,
@@ -23,6 +24,10 @@ unique(food$Feeding.Preference)
 # who's there and what do they like
 taxa.info = food %>% group_by(Genus.Morphon) %>% 
   summarise(Feeding.Preference = first(Feeding.Preference)) 
+# taxa.info.2 = food %>% group_by(Genus.Morphon) %>% 
+#   summarise(Feeding.Preference = first(Feeding.Preference),
+#             AvgMass = mean(10^Log.averageMass.)) 
+
 
 # this mostly results in V1=blabla-eating, V2=broad taxon
 trythis = as.data.frame(str_split(taxa.info$Feeding.Preference, " ", n = 2, simplify = T))
@@ -121,7 +126,7 @@ for (i in 1:length(att)) {
   
   # add missing basals 
   att[[i]] = att[[i]] %>% add_row(Genus.Morphon = c("bacteria","fungi","plants","detritus"), 
-                                  Biomass.mg = 1, # dummy !!!will mess up preferences if that is left to be done by fluxing()!!!
+                                  Biomass.mg = sum(att[[i]]$Biomass.mg), # makes omnivores eat equally from everything
                                   pop.met.rate = 0,
                                   Average.T = att[[i]][1,"Average.T"])
   
@@ -140,9 +145,96 @@ for (i in 1:length(att)) {
 web = vector(mode = "list", length=length(att)) # an empty list...
 for (i in 1:length(att)) { 
   # ...filled with subsets of the meta-foodweb, adding the missing basal resources
-  web[[i]] = mat[c(att[[i]]$Genus.Morphon,"bacteria","fungi","plants","detritus"),
-                 c(att[[i]]$Genus.Morphon,"bacteria","fungi","plants","detritus")]
+  web[[i]] = mat[c(att[[i]]$Genus.Morphon),
+                 c(att[[i]]$Genus.Morphon)]
 }
+
+
+library(cubature)
+
+for (i in 1:length(att)) { 
+  n = length(att[[i]]$freshMass.mg)-4
+  body.mat = replicate(n, att[[i]]$freshMass.mg)
+  bodymat = body.mat[1:n,]
+  bodymat[,] = NA
+  #oppmr = vector(length=length(att[[i]]$freshMass.mg))
+  for (j in 1:n) {
+    for (k in 1:n) { 
+      overlap <- cubintegrate(int_f, 0, Inf, 
+                              mu1=att[[i]][j,"freshMass.mg"]/10^.6, 
+                              sd1=att[[i]][j,"freshMass.mg"]/10^.6,
+                              mu2=att[[i]][k,"freshMass.mg"],
+                              sd2=att[[i]][k,"freshMass.mg"]
+      )$integral
+      bodymat[k,j] <- overlap
+    }
+    
+    
+  }
+  checkthat = web[[i]][1:n,1:n]*bodymat
+  checkthat = vegan::decostand(checkthat,"total", 2)
+  web[[i]][1:n,1:n] = checkthat
+}
+
+# https://rpsychologist.com/calculating-the-overlap-of-two-normal-distributions-using-monte-carlo-integration
+int_f <- function(x, mu1, mu2, sd1, sd2) {
+  f1 <- dlnormtrunc.intuitive(x, m=mu1, s=sd1, p=1)
+  f2 <- dlnormtrunc.intuitive(x, m=mu2, s=sd2, p=1)
+  pmin(f1, f2)
+}
+integrate(int_f, -Inf, Inf, mu1=5.740768e-04/10^.6, mu2=2.877200e-04, 
+                            sd1=5.740768e-04/10^.6, sd2=2.877200e-04)$value
+#integrate(int_f, -Inf, Inf, mu1=55, mu2=65, sd1=5, sd2=6)
+
+dlnormtrunc.intuitive = function(x, m, s, p=.9) {
+  trnc <- EnvStats::dlnormTrunc(x, 
+                                meanlog = log(m^2 / sqrt(s^2 + m^2)), 
+                                sdlog = sqrt(log(1 + (s^2 / m^2))), 
+                                min = qlnorm((1-p)/2, 
+                                             meanlog = log(m^2 / sqrt(s^2 + m^2)), 
+                                             sdlog = sqrt(log(1 + (s^2 / m^2)))), 
+                                max = qlnorm(1-(1-p)/2, 
+                                             meanlog = log(m^2 / sqrt(s^2 + m^2)), 
+                                             sdlog = sqrt(log(1 + (s^2 / m^2)))))
+  return(trnc)
+}
+
+rlnormtrunc.intuitive = function(n, m, s, p=.9) {
+  trnc <- EnvStats::rlnormTrunc(n, 
+                                meanlog = log(m^2 / sqrt(s^2 + m^2)), 
+                                sdlog = sqrt(log(1 + (s^2 / m^2))), 
+                                min = qlnorm((1-p)/2, 
+                                             meanlog = log(m^2 / sqrt(s^2 + m^2)), 
+                                             sdlog = sqrt(log(1 + (s^2 / m^2)))), 
+                                max = qlnorm(1-(1-p)/2, 
+                                             meanlog = log(m^2 / sqrt(s^2 + m^2)), 
+                                             sdlog = sqrt(log(1 + (s^2 / m^2)))))
+  return(trnc)
+}
+
+df <- data.frame(
+  Data=factor(rep(c("D1", "D2"), each=2000)),
+  weight=c(rlnormtrunc.intuitive(2000, m=5.740768e-04/10, s=5.740768e-04/10, p=1),
+           rlnormtrunc.intuitive(2000, m=2.877200e-04,  s=2.877200e-04, p=1))
+)
+#df$weight = log10(df$weight)
+d1dens <- with(df, density(weight[Data == "D1"], 
+                           from = min(weight), 
+                           to = max(weight)))
+d2dens <- with(df, density(weight[Data == "D2"], 
+                           from = min(weight),
+                           to = max(weight)))
+joint <- pmin(d1dens$y, d2dens$y)
+
+df2 <- data.frame(x = rep(d1dens$x, 3), 
+                  y = c(d1dens$y, d2dens$y, joint),
+                  Data = rep(c("D1", "D2", "overlap"), each = length(d1dens$x)))
+
+ggplot(df2, aes(x, y, fill = Data)) + 
+  geom_area(position = position_identity(), color = "black") +
+  scale_fill_brewer(palette = "Pastel2") +
+  theme_bw()
+
 
 
 ################### Calculating energy fluxes using {fluxweb} ##################
