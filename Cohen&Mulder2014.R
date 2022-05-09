@@ -37,7 +37,8 @@ trythis = as.data.frame(str_split(taxa.info$Feeding.Preference, " ", n = 2, simp
 taxainfo = cbind(taxa.info, trythis)
 taxainfo$is = taxainfo$V2
 taxainfo$is[which(str_detect(taxainfo$V2, "mite"))] = "mite"
-taxainfo$is[which(str_detect(taxainfo$V2, "nematode"))] = "nematode"
+taxainfo$is[which(str_detect(taxainfo$V2, "nematode ") | 
+                    endsWith(taxainfo$V2,"nematode"))] = "nematode"
 
 #taxainfo$eats = NA
 
