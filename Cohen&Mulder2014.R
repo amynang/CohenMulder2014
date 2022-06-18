@@ -120,10 +120,24 @@ for (i in 1:length(att)) {
                                     taxainfo$is[match(att[[i]]$Genus.Morphon, taxainfo$Genus.Morphon)] == "mite" ~ (att[[i]]$averageMass)/.3,
                                     taxainfo$is[match(att[[i]]$Genus.Morphon, taxainfo$Genus.Morphon)] == "nematode" ~ (att[[i]]$averageMass)/.2)
   
-  # metabolic rate (J/h) as a function of bodymass (mg), using the "linear model" from Ehnes 2011 
-  att[[i]]$ind.met.rate = exp(23.055335 + 0.695071*log(att[[i]]$freshMass.mg) - 0.68642*(1/(8.62*1e-5*(att[[i]]$Average.T+273.15))))
+#  # metabolic rate (J/h) as a function of bodymass (mg), using the "linear model" from Ehnes 2011 
+#  att[[i]]$ind.met.rate = exp(23.055335 + 0.695071*log(att[[i]]$freshMass.mg) - 0.68642*(1/(8.62*1e-5*(att[[i]]$Average.T+273.15))))
+#  # population level metabolism (J/h)
+#  att[[i]]$pop.met.rate = att[[i]]$ind.met.rate * att[[i]]$Abundance
+  
   # population level metabolism (J/h)
-  att[[i]]$pop.met.rate = att[[i]]$ind.met.rate * att[[i]]$Abundance
+  # the function will take as arguments the nth element of vectors Abundance, 
+  # freshMass.mg, freshMass.mg and return a list of vectors
+  # every vector contains sampled bodymasses for the nth taxon
+  att[[i]]$pop.met.rate = pmap(list(ceiling(att[[i]]$Abundance), # how many draws
+                                    att[[i]]$freshMass.mg,       # mean
+                                    att[[i]]$freshMass.mg),      # sd
+                               rlnormtrunc.intuitive) %>%  # then is passed on to another mapping
+    map(.,  # the sum of metabolic energy loss of all individuals
+            # metabolic rate (J/h) as a function of bodymass (mg), using the "linear model" from Ehnes 2011 
+        ~ sum(exp(23.055335 + 0.695071*log(.) - 0.68642*(1/(8.62*1e-5*(att[[i]][1,]$Average.T+273.15)))))
+    ) %>% do.call(rbind, .) %>% as.vector()  #...as vector
+  
   
   # add missing basals 
   att[[i]] = att[[i]] %>% add_row(Genus.Morphon = c("bacteria","fungi","plants","detritus"), 
@@ -138,7 +152,7 @@ for (i in 1:length(att)) {
                                                                   # everything else (including fungi & bacteria???) gets predation efficiency
                                                                   TRUE ~ exp(2.266) *exp(.164*temp.kT) / (1 + exp(2.266) *exp(.164*temp.kT)))
   
-  #att[[i]] = att[[i]] %>% relocate(Sepal.Width:Petal.Length, .before = Sepal.Length)
+  #att[[i]] = as.matrix(att[[i]]) 
 
 }
 
@@ -156,28 +170,62 @@ library(cubature)
 # If I have 1 bodymass distribution pre taxon across all locations I can do this once
 # Repeating 135 times is... crazy
 
+
+int_f <- function(x, mu1, mu2, sd1, sd2) {
+  f1 <- dlnormtrunc.intuitive(x, m=mu1, s=sd1, p=1)
+  f2 <- dlnormtrunc.intuitive(x, m=mu2, s=sd2, p=1)
+  pmin(f1, f2)
+}
+
 for (i in 1:length(att)) { 
+  # number of taxa (removing basals)
   n = length(att[[i]]$freshMass.mg)-4
+  # this is not wrong but probably not the simplest way?
   body.mat = replicate(n, att[[i]]$freshMass.mg)
   bodymat = body.mat[1:n,]
-  bodymat[,] = NA
-  #oppmr = vector(length=length(att[[i]]$freshMass.mg))
-  for (j in 1:n) {
-    for (k in 1:n) { 
-      overlap <- cubintegrate(int_f, 0, Inf, 
-                              mu1=att[[i]][j,"freshMass.mg"]/10^.6, 
-                              sd1=att[[i]][j,"freshMass.mg"]/10^.6,
-                              mu2=att[[i]][k,"freshMass.mg"],
-                              sd2=att[[i]][k,"freshMass.mg"]
-      )$integral
-      bodymat[k,j] <- overlap
-    }
-    
-    
+  bodymat[,] = 0
+  
+  # which cells in the interaction matrix are non zero
+  ind = which(web[[i]][1:n,1:n] != 0, arr.ind = T)
+  
+  # vector of bodymasses
+  bodymasses = att[[i]][ ,"freshMass.mg"]
+  
+  for (j in 1:nrow(ind)) { # for every predator-prey pair
+    # we calculate prey suitability as the integral of the overlap of that prey's 
+    # bodymass distribution and the optimal prey distribution for that predator
+    # assuming OPPMR = 10^.6 (optimal prey ~4 times smaller than predator cf Brose 2006)
+    overlap = cubintegrate(int_f, 0, Inf,
+                           mu1=bodymasses[ind[j,][2]]/10^.6, # predator/10^.6
+                           sd1=bodymasses[ind[j,][2]]/10^.6,
+                           mu2=bodymasses[ind[j,][1]],       # prey
+                           sd2=bodymasses[ind[j,][1]])$integral
+    bodymat[ind[j,][1],ind[j,][2]] <- overlap
   }
+  # this is so much slower!!!
+  # for (j in 1:n) {
+  #   for (k in 1:n) { 
+  #     overlap <- cubintegrate(int_f, 0, Inf, 
+  #                             mu1=bodymasses[j]/10^.6, 
+  #                             sd1=bodymasses[j]/10^.6,
+  #                             mu2=bodymasses[k],
+  #                             sd2=bodymasses[k]
+  #     )$integral
+  #     bodymat[k,j] <- overlap
+  #   }
+  #   
+  #   
+  # }
   checkthat = web[[i]][1:n,1:n]*bodymat
   checkthat = vegan::decostand(checkthat,"total", 2)
   web[[i]][1:n,1:n] = checkthat
+  
+  
+  cat('\014')
+  #cat(paste0(round((m/1600)*100), '%'))
+  cat(paste0(i, '/', length(att)))
+  #Sys.sleep(.05)
+  if (i == length(att)) cat('- Done!')
 }
 
 # https://rpsychologist.com/calculating-the-overlap-of-two-normal-distributions-using-monte-carlo-integration
